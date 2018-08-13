@@ -1,0 +1,109 @@
+# https://docs.opendata.aws/nwm-archive/readme.html
+# https://nwm-archive.s3.amazonaws.com/2003/200305011200.CHRTOUT_DOMAIN1.com
+
+import datetime
+import urllib
+import numpy as np
+import multiprocessing
+from multiprocessing import Process
+import os
+
+base_folder = "X:\\noaa_reanalysis"
+#base_folder = "./"
+loop_type = "year"
+
+start_year = 2010
+start_month = 2
+start_day = 1
+start_hour = 0
+
+end_year = 2017
+end_month = 3
+end_day = 31
+end_hour = 23
+time_delta = datetime.timedelta(hours=1)
+
+use_multiple_processing = True
+process_num = 8
+
+
+def _get_url_dt2dt(start_datetime, end_datetime, time_delta):
+    url_list = []
+    fn_list = []
+
+    current_datetime = start_datetime
+    while current_datetime <= end_datetime:
+        fn = "{datetime}.CHRTOUT_DOMAIN1.comp".format(datetime=current_datetime.strftime("%Y%m%d%H%M"))
+        fn = fn + ".nc"
+        folder_path = os.path.join(base_folder, current_datetime.strftime("%Y"), current_datetime.strftime("%Y%m"))
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+
+        fn_list.append(os.path.join(folder_path, fn))
+        dt_cur = current_datetime.strftime("%Y/%Y%m%d%H%M")
+        url = "https://nwm-archive.s3.amazonaws.com/{datetime}.CHRTOUT_DOMAIN1.comp".format(datetime=dt_cur)
+        url_list.append(url)
+
+        current_datetime = current_datetime + time_delta
+    return url_list, fn_list
+
+
+def get_url_list():
+    url_list = []
+    fn_list = []
+    if loop_type == "day":
+        start_datetime = datetime.datetime(start_year, start_month, start_day, start_hour)
+        end_datetime = datetime.datetime(end_year, end_month, end_day, end_hour)
+        td = time_delta
+        url_list, fn_list = _get_url_dt2dt(start_datetime, end_datetime, td)
+
+    elif loop_type == "year":
+        year_list = range(start_year, end_year+1, 1)
+        for year in year_list:
+            start_datetime = datetime.datetime(year, start_month, start_day, start_hour)
+            end_datetime = datetime.datetime(year, end_month, end_day, end_hour)
+            td = time_delta
+            url_list_year, fn_list_year = _get_url_dt2dt(start_datetime, end_datetime, td)
+            url_list = url_list + url_list_year
+            fn_list = fn_list + fn_list_year
+
+
+    return url_list, fn_list
+
+
+def download_file_from_url(url_fn_pair_list):
+    job_length = len(url_fn_pair_list)
+    counter = 0
+    for url_fn_pair in url_fn_pair_list:
+        try:
+            urllib.urlretrieve(url_fn_pair[0], url_fn_pair[1])
+            counter = counter + 1
+            print ("{} [{}/{}]".format(multiprocessing.current_process(), counter, job_length))
+        except Exception as ex:
+            print ("{3} Failed {0} at {1} : {2}".format(multiprocessing.current_process(), url_fn_pair[0], url_fn_pair[1], ex.message))
+    print ("{} Done".format(multiprocessing.current_process()))
+
+
+if __name__ == "__main__":
+
+    url_list, fn_list = get_url_list()
+    url_fn_pair_list = zip(url_list, fn_list)
+
+    if use_multiple_processing and len(url_fn_pair_list) > 1:
+        if len(url_fn_pair_list) < process_num:
+            process_num = len(url_fn_pair_list)
+        url_fn_pair_list_chunk = np.array_split(url_fn_pair_list, process_num)
+
+        processes = []
+        for url_fn_pair_list_item in url_fn_pair_list_chunk:
+            p = Process(target=download_file_from_url, args=(url_fn_pair_list_item.tolist(), ))
+            p.start()
+            processes.append(p)
+
+        for p in processes:
+            p.join()
+    else:
+        download_file_from_url(url_fn_pair_list)
+    print ("All Done")
+pass
+

@@ -8,17 +8,17 @@ import multiprocessing
 from multiprocessing import Process
 import os
 
-base_folder = "X:\\noaa_reanalysis"
+base_folder = "Z:\\NWM\\noaa_reanalysis"
 #base_folder = "./"
 loop_type = "year"
 
-start_year = 2010
-start_month = 2
+start_year = 1993
+start_month = 6
 start_day = 1
 start_hour = 0
 
 end_year = 2017
-end_month = 3
+end_month = 7
 end_day = 31
 end_hour = 23
 time_delta = datetime.timedelta(hours=1)
@@ -67,43 +67,57 @@ def get_url_list():
             url_list = url_list + url_list_year
             fn_list = fn_list + fn_list_year
 
-
     return url_list, fn_list
 
 
-def download_file_from_url(url_fn_pair_list):
+def download_file_from_url(url_fn_pair_list, return_dict=None):
+
     job_length = len(url_fn_pair_list)
     counter = 0
+    err_list = []
     for url_fn_pair in url_fn_pair_list:
         try:
             urllib.urlretrieve(url_fn_pair[0], url_fn_pair[1])
             counter = counter + 1
-            print ("{} [{}/{}]".format(multiprocessing.current_process(), counter, job_length))
+            if counter % 20 == 1:
+                print ("{} [{}/{}]".format(multiprocessing.current_process(), counter, job_length))
         except Exception as ex:
-            print ("{3} Failed {0} at {1} : {2}".format(multiprocessing.current_process(), url_fn_pair[0], url_fn_pair[1], ex.message))
+            err_str = "{0} Failed {1} at {2} : {3}".format(multiprocessing.current_process(),
+                                                           url_fn_pair[0], url_fn_pair[1], ex.message)
+            err_list.append(err_str)
+            print (err_str)
     print ("{} Done".format(multiprocessing.current_process()))
+    if return_dict is not None:
+        return_dict[str(multiprocessing.current_process())] = err_list
+    else:
+        return_dict = [err_list]
+    return return_dict
 
 
 if __name__ == "__main__":
 
     url_list, fn_list = get_url_list()
     url_fn_pair_list = zip(url_list, fn_list)
-
+    err_list = None
+    manager = multiprocessing.Manager()
+    return_dict = manager.dict()
     if use_multiple_processing and len(url_fn_pair_list) > 1:
         if len(url_fn_pair_list) < process_num:
             process_num = len(url_fn_pair_list)
         url_fn_pair_list_chunk = np.array_split(url_fn_pair_list, process_num)
-
         processes = []
         for url_fn_pair_list_item in url_fn_pair_list_chunk:
-            p = Process(target=download_file_from_url, args=(url_fn_pair_list_item.tolist(), ))
+            p = Process(target=download_file_from_url, args=(url_fn_pair_list_item.tolist(), return_dict))
             p.start()
             processes.append(p)
-
         for p in processes:
             p.join()
     else:
-        download_file_from_url(url_fn_pair_list)
+        download_file_from_url(url_fn_pair_list, return_dict)
     print ("All Done")
-pass
+    err_list = return_dict.values()
+    for el in err_list:
+        for e in el:
+            print e
+
 
